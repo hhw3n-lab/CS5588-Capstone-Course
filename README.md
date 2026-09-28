@@ -1,68 +1,22 @@
-# CS 5588 Challenge 1 — Streamlit Job Search Application
+# Data
 
-This companion application turns the Challenge 1 Jupyter/Colab notebook into an interactive Streamlit prototype.
+## Sample (in-app)
 
-## Features
+`retail360_app.py` embeds a small synthetic sample matching the Online Retail II schema, including demo customer **13085**. No extra download is required for the basic Streamlit demo.
 
-- Editable user profile
-- Job search and filters
-- Explainable weighted ranking
-- Skill-gap explanations
-- Optional Hugging Face semantic matching
-- Hybrid baseline + semantic ranking
-- Feedback logging
-- Manual vs. AI-guided experiment table
-- Google Antigravity agentic-development prompt
-- GitHub traceability workflow
+## Full benchmark (recommended for experiments)
 
-The starter uses **synthetic job postings**. Replace them only with instructor-approved data or APIs.
+**UCI Online Retail II** — Daqing Chen  
+DOI: [10.24432/C5CG6D](https://doi.org/10.24432/C5CG6D)
 
-## Run locally
+1. Download the CSV from UCI or Kaggle.
+2. Place it here as `online_retail_II.csv` (or pass `--data path/to/file.csv` to the experiment script).
+3. **Do not commit** the full raw file if it is large; keep download instructions only.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-# Windows: .venv\Scripts\activate
+### Column expectations
 
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
+`Invoice`, `StockCode`, `Description`, `Quantity`, `InvoiceDate`, `UnitPrice`, `CustomerID`, `Country`
 
-Streamlit normally opens the app at `http://localhost:8501`.
+### Protocol reminder
 
-## Recommended GitHub layout
-
-```text
-job-search-challenge/
-├── README.md
-├── streamlit_app.py
-├── requirements.txt
-├── notebooks/
-│   └── CS5588_Challenge1_AI_Guided_Job_Search_Starter_Streamlit.ipynb
-├── data/
-├── tests/
-└── results/
-```
-
-Suggested experiment branches:
-
-```bash
-git checkout -b human-baseline
-git checkout -b ai-guided-matcher
-```
-
-Suggested traceability labels: `HUMAN`, `AI-GENERATED`, `CO-DESIGNED`.
-
-## Streamlit Community Cloud
-
-Push `streamlit_app.py` and `requirements.txt` to GitHub, select the repository in Streamlit Community Cloud, set the main file to `streamlit_app.py`, deploy, and verify the application before recording the URL in the project README.
-
-## Hugging Face
-
-The optional semantic matcher uses `sentence-transformers/all-MiniLM-L6-v2`. The first run may download model weights.
-
-## Antigravity activity
-
-Use the prompt in the **Agentic AI + GitHub** tab to ask the agent to improve a bounded component. Compare the human baseline, AI-generated change, and human-AI co-designed final version.
-
-The goal is not to prove that AI always wins. The goal is to determine where agentic AI helps, where it fails, and what must remain under human review.
+Features must be computed only on transactions **before** the prediction cutoff date to avoid leakage.
