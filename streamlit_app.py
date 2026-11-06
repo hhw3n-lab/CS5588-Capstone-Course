@@ -1,267 +1,386 @@
-import json
-import re
-import numpy as np
-import pandas as pd
+"""Streamlit interface. Run with: streamlit run app.py"""
+
+import hmac
+import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+
 import streamlit as st
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="AI-Guided Job Search", page_icon="🔎", layout="wide")
 
-JOBS = [
-    {"job_id":"J001","title":"Junior Data Scientist","company":"HealthAI Labs","location":"Kansas City, MO","work_mode":"Hybrid","min_experience":1,"required_skills":["python","sql","pandas","machine learning"],"preferred_skills":["healthcare","scikit-learn","git"],"description":"Build predictive models and analytics pipelines for healthcare data using Python, SQL, pandas, and machine learning."},
-    {"job_id":"J002","title":"Data Analyst","company":"Metro Analytics","location":"Kansas City, MO","work_mode":"On-site","min_experience":1,"required_skills":["sql","excel","data visualization"],"preferred_skills":["python","tableau"],"description":"Analyze business data, create SQL reports, dashboards, and visualizations, and communicate findings to stakeholders."},
-    {"job_id":"J003","title":"Machine Learning Engineer","company":"VectorWorks AI","location":"Remote","work_mode":"Remote","min_experience":3,"required_skills":["python","pytorch","docker","machine learning"],"preferred_skills":["aws","mlops","git"],"description":"Develop production machine learning systems, model training pipelines, APIs, containers, and cloud deployments."},
-    {"job_id":"J004","title":"Research Data Scientist","company":"BioDiscovery Institute","location":"St. Louis, MO","work_mode":"Hybrid","min_experience":2,"required_skills":["python","statistics","machine learning"],"preferred_skills":["healthcare","nlp","pandas"],"description":"Apply statistical learning and AI methods to biomedical research datasets and collaborate with domain scientists."},
-    {"job_id":"J005","title":"Business Intelligence Analyst","company":"Civic Data Group","location":"Remote","work_mode":"Remote","min_experience":2,"required_skills":["sql","power bi","data visualization"],"preferred_skills":["python","data modeling"],"description":"Build dashboards, semantic models, SQL transformations, and KPI reporting for distributed business teams."},
-    {"job_id":"J006","title":"AI Software Intern","company":"Agentic Systems","location":"Remote","work_mode":"Remote","min_experience":0,"required_skills":["python","git"],"preferred_skills":["llm","hugging face","agents"],"description":"Prototype AI applications using Python, open-source models, GitHub workflows, and agentic development tools."},
-    {"job_id":"J007","title":"Senior Data Scientist","company":"FinModel","location":"Chicago, IL","work_mode":"Hybrid","min_experience":5,"required_skills":["python","sql","statistics","machine learning"],"preferred_skills":["spark","aws","leadership"],"description":"Lead modeling projects, mentor data scientists, and design scalable machine learning solutions for financial products."},
-    {"job_id":"J008","title":"Healthcare Data Analyst","company":"CareMetrics","location":"Remote","work_mode":"Remote","min_experience":1,"required_skills":["sql","python","data visualization"],"preferred_skills":["healthcare","pandas"],"description":"Analyze healthcare quality data with SQL and Python, prepare visual reports, and support clinical analytics teams."},
-    {"job_id":"J009","title":"Data Engineering Associate","company":"CloudPipe","location":"Kansas City, MO","work_mode":"Hybrid","min_experience":2,"required_skills":["python","sql","etl"],"preferred_skills":["spark","aws","git"],"description":"Create ETL workflows, data quality checks, SQL transformations, and cloud-oriented data pipelines."},
-    {"job_id":"J010","title":"NLP Research Assistant","company":"University AI Lab","location":"Kansas City, MO","work_mode":"On-site","min_experience":0,"required_skills":["python","machine learning"],"preferred_skills":["nlp","hugging face","research"],"description":"Support experiments in natural language processing, machine learning, Hugging Face models, and research evaluation."},
-]
+def load_secrets() -> None:
+    """Copy Streamlit secrets (used when deployed) into the environment; locally .env is used instead."""
+    try:
+        secrets = dict(st.secrets)
+    except Exception:  # no secrets.toml: running locally with .env
+        return
+    for key, value in secrets.items():
+        if isinstance(value, (str, int, float)):
+            os.environ[key] = str(value)
 
-DEFAULT_PROFILE = {
-    "name":"Sample Student",
-    "skills":["python","sql","pandas","scikit-learn","data visualization","machine learning","git"],
-    "years_experience":2,
-    "interests":["data science","healthcare","ai"],
-    "preferred_locations":["Kansas City, MO","Remote"],
-    "remote_ok":True,
-    "target_titles":["Data Scientist","Data Analyst","ML Engineer"],
+
+load_secrets()
+
+import core  # noqa: E402  (imported after secrets so llm sees the deployed settings)
+import knowledge  # noqa: E402
+import llm  # noqa: E402
+import runtime  # noqa: E402
+import store  # noqa: E402
+
+EXAMPLES = {
+    "Viscous polymer": "My polymer remains unexpectedly viscous during extrusion at elevated temperatures. "
+                       "What measurements could help me understand why?",
+    "Scaffold stiffness": "I want to determine the compressive stiffness of a porous polymer scaffold. "
+                          "What equipment could I use?",
+    "Internal structure": "I need to examine the internal structure of a porous specimen without destroying it. "
+                          "What characterization methods are available?",
 }
-
-def norm(x):
-    return re.sub(r"\s+", " ", str(x).strip().lower())
-
-def skill_score(user_skills, required, preferred):
-    user = {norm(x) for x in user_skills}
-    req = {norm(x) for x in required}
-    pref = {norm(x) for x in preferred}
-    req_s = len(user & req) / max(len(req), 1)
-    pref_s = len(user & pref) / max(len(pref), 1) if pref else 0.0
-    return 0.8 * req_s + 0.2 * pref_s
-
-def exp_score(user_years, min_years):
-    return 1.0 if min_years <= 0 else min(user_years / min_years, 1.0)
-
-def interest_score(interests, job):
-    text = " ".join([job["title"], job["company"], job["description"], " ".join(job["required_skills"]), " ".join(job["preferred_skills"])]).lower()
-    return 0.0 if not interests else sum(norm(i) in text for i in interests) / len(interests)
-
-def constraint_score(profile, job):
-    loc = job["location"] in profile["preferred_locations"]
-    remote = profile["remote_ok"] and job["work_mode"].lower() == "remote"
-    return 1.0 if loc or remote else 0.25
-
-def match(profile, job, weights):
-    parts = {
-        "skill_score": skill_score(profile["skills"], job["required_skills"], job["preferred_skills"]),
-        "experience_score": exp_score(profile["years_experience"], job["min_experience"]),
-        "interest_score": interest_score(profile["interests"], job),
-        "constraint_score": constraint_score(profile, job),
-    }
-    denom = max(sum(weights.values()), 1e-9)
-    total = (
-        weights["skills"] * parts["skill_score"] +
-        weights["experience"] * parts["experience_score"] +
-        weights["interests"] * parts["interest_score"] +
-        weights["constraints"] * parts["constraint_score"]
-    ) / denom
-    parts["score"] = float(np.clip(total, 0, 1))
-    return parts
-
-def explain(profile, job, weights):
-    user = {norm(x) for x in profile["skills"]}
-    req = {norm(x) for x in job["required_skills"]}
-    pref = {norm(x) for x in job["preferred_skills"]}
-    return {
-        **match(profile, job, weights),
-        "matched_required": sorted(user & req),
-        "missing_required": sorted(req - user),
-        "matched_preferred": sorted(user & pref),
-    }
-
-def rank_jobs(profile, jobs, weights):
-    rows = []
-    for j in jobs:
-        s = match(profile, j, weights)
-        rows.append({"job_id":j["job_id"],"title":j["title"],"company":j["company"],"location":j["location"],"work_mode":j["work_mode"],"min_experience":j["min_experience"],**s})
-    return pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
-
-if "feedback" not in st.session_state:
-    st.session_state.feedback = []
-if "comparison" not in st.session_state:
-    st.session_state.comparison = pd.DataFrame([
-        {"Version":"Human baseline","Development time (min)":None,"Tests passed":4,"Top-5 quality (1-5)":None,"Human edits":"Baseline written manually","Main failure":"","What we learned":""},
-        {"Version":"AI-guided","Development time (min)":None,"Tests passed":None,"Top-5 quality (1-5)":None,"Human edits":"","Main failure":"","What we learned":""},
-        {"Version":"Human-AI co-designed","Development time (min)":None,"Tests passed":None,"Top-5 quality (1-5)":None,"Human edits":"","Main failure":"","What we learned":""},
-    ])
-
-st.sidebar.header("User profile")
-name = st.sidebar.text_input("Name", DEFAULT_PROFILE["name"])
-skills = [x.strip() for x in st.sidebar.text_area("Skills (comma separated)", ", ".join(DEFAULT_PROFILE["skills"]), height=120).split(",") if x.strip()]
-years = st.sidebar.slider("Years of experience", 0, 10, DEFAULT_PROFILE["years_experience"])
-interests = [x.strip() for x in st.sidebar.text_input("Interests (comma separated)", ", ".join(DEFAULT_PROFILE["interests"])).split(",") if x.strip()]
-all_locations = sorted({j["location"] for j in JOBS})
-preferred_locations = st.sidebar.multiselect("Preferred locations", all_locations, default=["Kansas City, MO","Remote"])
-remote_ok = st.sidebar.checkbox("Remote is acceptable", True)
-profile = {"name":name,"skills":skills,"years_experience":years,"interests":interests,"preferred_locations":preferred_locations,"remote_ok":remote_ok,"target_titles":DEFAULT_PROFILE["target_titles"]}
-
-st.sidebar.divider()
-st.sidebar.subheader("Explainable score weights")
-weights = {
-    "skills": st.sidebar.slider("Skills", 0.0, 1.0, 0.45, 0.05),
-    "experience": st.sidebar.slider("Experience", 0.0, 1.0, 0.25, 0.05),
-    "interests": st.sidebar.slider("Interests", 0.0, 1.0, 0.15, 0.05),
-    "constraints": st.sidebar.slider("Constraints", 0.0, 1.0, 0.15, 0.05),
+# Sidebar choice -> modes to run (several are shown side by side).
+MODES = {
+    "Structured": ["structured"],
+    "Structured + annotations": ["annotated"],
+    "Naive": ["naive"],
+    "Compare structured and naive": ["structured", "naive"],
+    "Compare all three": ["structured", "annotated", "naive"],
 }
+MODE_LABELS = {"structured": "Structured", "annotated": "Structured + annotations", "naive": "Naive"}
+RUNNERS = {"structured": core.run_structured, "annotated": core.run_annotated, "naive": core.run_naive}
+RATINGS = ["Good", "Partly", "Wrong"]
 
-st.title("🔎 AI-Guided Job Search Application")
-st.caption("CS 5588 Challenge 1 • Human Design → AI Design → Human–AI Co-Design → Feedback & Refinement")
-st.info("Teaching demo: the starter uses synthetic job postings. Replace them only with instructor-approved data or APIs.")
 
-t1, t2, t3, t4, t5 = st.tabs(["1. Search & Rank","2. Hugging Face","3. Feedback","4. Manual vs AI","5. Agentic AI + GitHub"])
+def set_question(text: str) -> None:
+    st.session_state["question"] = text
 
-with t1:
-    st.subheader("Search, filter, rank, and explain")
-    c1, c2, c3 = st.columns([2,1,1])
-    with c1:
-        query = st.text_input("Search title/description", placeholder="e.g., data, healthcare, machine learning")
-    with c2:
-        loc_filter = st.selectbox("Location", ["All"] + all_locations)
-    with c3:
-        remote_only = st.checkbox("Remote only")
-    filtered = []
-    for j in JOBS:
-        if query and query.lower() not in (j["title"] + " " + j["description"]).lower():
-            continue
-        if loc_filter != "All" and j["location"] != loc_filter:
-            continue
-        if remote_only and j["work_mode"].lower() != "remote":
-            continue
-        filtered.append(j)
-    if not filtered:
-        st.warning("No jobs match the current filters.")
+
+def password_ok() -> bool:
+    """Shared-password gate so the public link does not spend API credits. Off when APP_PASSWORD is unset."""
+    expected = os.getenv("APP_PASSWORD", "")
+    if not expected or st.session_state.get("authenticated"):
+        return True
+    entered = st.text_input("Password", type="password")
+    if entered and hmac.compare_digest(entered, expected):
+        st.session_state["authenticated"] = True
+        st.rerun()
+    if entered:
+        st.error("Wrong password.")
+    return False
+
+
+@st.cache_resource
+def answer_cache() -> runtime.AnswerCache:
+    """One cache for all sessions, in the server's memory (emptied when the app restarts)."""
+    return runtime.AnswerCache()
+
+
+@st.cache_resource
+def daily_budget() -> runtime.DailyBudget:
+    return runtime.DailyBudget()
+
+
+def render_sidebar() -> str:
+    with st.sidebar:
+        mode = st.radio("Mode", list(MODES))
+        st.text_input("Your name (optional, shown with your feedback)", key="rater")
+        st.checkbox("Skip cache (ask the model again)", key="skip_cache")
+        fallback = llm.fallback_model_name()
+        st.caption(f"Provider: `{llm.provider()}`  \nModel: `{llm.model_name()}`"
+                   + (f"  \nFallback model: `{fallback}`" if fallback else "")
+                   + f"  \nLogging to: {store.destination()}")
+        if runtime.flag("DEMO_OFFLINE"):
+            st.warning("Offline demo mode: answers come from saved answers only.")
+        max_calls = runtime.max_calls_per_session()
+        st.caption(f"This session: {st.session_state['calls']} model calls"
+                   + (f" of {max_calls}" if max_calls else "")
+                   + f", ${st.session_state['cost']:.4f}  \n"
+                   + f"Today, all users: ${daily_budget().spent():.4f}"
+                   + (f" of ${runtime.daily_budget_usd():.2f}" if runtime.daily_budget_usd() else ""))
+        with st.expander(f"Equipment in the dataset ({len(core.load_equipment())})"):
+            st.dataframe(
+                [{"ID": e["id"], "Instrument": e["instrument"], "Location": e["location"],
+                  "Typical techniques (draft)": "; ".join(knowledge.technique_name(t)
+                                                          for t in knowledge.techniques_of(e["id"]))}
+                 for e in core.load_equipment()],
+                hide_index=True,
+            )
+    return mode
+
+
+def render_recommendation(rec: dict) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{rec['instrument']}** · {rec['manufacturer']} {rec['model']} · `{rec['id']}`")
+        st.markdown(f"**Technique:** {rec['technique']}")
+        st.markdown(rec["why"])
+        if rec.get("destructive"):
+            st.markdown(f"**Destructive:** {rec['destructive']}")
+        st.markdown(f"**Location:** {rec['location']}  \n**Contact (fictional):** {rec['contact']}")
+        if rec["accessories_to_confirm"]:
+            st.warning("**Confirm with the contact:** " + "; ".join(rec["accessories_to_confirm"]))
+        for caution in rec.get("cautions", []):
+            st.error(caution)
+        if rec.get("notes_status") == "draft":
+            st.caption("Instrument notes are a draft and not yet reviewed by the faculty mentor.")
+
+
+def render_source(result: dict) -> None:
+    """Where the answer came from, and what it took, when that is not just one live call."""
+    usage = result.get("usage") or {}
+    if result.get("source") == "demo_backup":
+        demo = result["demo"]
+        reason = f" The live model could not be used: {result['notice']}" if result.get("notice") else ""
+        st.info(f"Showing a saved answer recorded {demo['recorded_at'][:10]} with `{demo['model']}`.{reason}")
+        if demo["stale"]:
+            st.warning("The prompt or dataset has changed since this answer was saved.")
+        return
+    if result.get("source") == "cache":
+        st.caption("Shown again from the cache: this question was answered earlier with the same model.")
+    if usage.get("fallback_used"):
+        st.caption(f"The main model was unavailable; answered by the fallback model `{usage['model_used']}`.")
+    if result.get("repaired"):
+        st.caption("The model's first answer was not usable JSON; it was asked once to fix the format.")
+    parts = [f"{usage['seconds']:.1f} s" if usage.get("seconds") is not None else "",
+             f"{usage['output_tokens']:,} output tokens" if usage.get("output_tokens") is not None else "",
+             f"${usage['cost_usd']:.4f}" if usage.get("cost_usd") else ""]
+    if any(parts) and result.get("source") == "live":
+        st.caption(" · ".join(p for p in parts if p))
+
+
+def render_structured(result: dict) -> None:
+    if result["error"]:
+        st.error(f"Could not get an answer: {result['error']}")
     else:
-        ranked = rank_jobs(profile, filtered, weights)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Jobs considered", len(ranked))
-        m2.metric("Top match score", f'{ranked.iloc[0]["score"]:.1%}')
-        m3.metric("Profile skills", len(profile["skills"]))
-        st.bar_chart(ranked[["title","score"]].head(8).set_index("title"))
-        show = ranked.copy()
-        for c in ["score","skill_score","experience_score","interest_score","constraint_score"]:
-            show[c] = (100 * show[c]).round(1)
-        st.dataframe(show.rename(columns={"score":"Match %","skill_score":"Skills %","experience_score":"Experience %","interest_score":"Interests %","constraint_score":"Constraints %"}), use_container_width=True, hide_index=True)
-        st.markdown("### Top job explanations")
-        for _, row in ranked.head(5).iterrows():
-            job = next(j for j in filtered if j["job_id"] == row["job_id"])
-            d = explain(profile, job, weights)
-            with st.expander(f'{job["title"]} — {job["company"]} • {row["score"]:.1%}'):
-                st.write(job["description"])
-                a, b = st.columns(2)
-                with a:
-                    st.markdown("**Matched required skills**")
-                    st.write(", ".join(d["matched_required"]) or "None")
-                    st.markdown("**Matched preferred skills**")
-                    st.write(", ".join(d["matched_preferred"]) or "None")
-                with b:
-                    st.markdown("**Missing required skills**")
-                    st.write(", ".join(d["missing_required"]) or "None")
-                    st.markdown("**Experience**")
-                    st.write(f'{profile["years_experience"]} years vs. {job["min_experience"]} required')
-                    st.markdown("**Location / work mode**")
-                    st.write(f'{job["location"]} • {job["work_mode"]}')
+        if result.get("clarifying_question"):
+            st.info(f"**Please clarify:** {result['clarifying_question']}")
+        if result.get("summary"):
+            st.markdown(result["summary"])
+        if result.get("measurement_needs"):
+            st.markdown("**What needs to be measured**")
+            st.markdown("\n".join(f"- {need}" for need in result["measurement_needs"]))
+        if result["removed"]:
+            st.error("Removed recommendation(s) naming an instrument not in the dataset: "
+                     + ", ".join(result["removed"]))
+        if result["recommendations"]:
+            st.markdown("**Recommended equipment**")
+            for rec in result["recommendations"]:
+                render_recommendation(rec)
+        elif not result.get("clarifying_question"):
+            st.warning("No suitable equipment was found in the dataset.")
+        if result.get("not_available"):
+            st.markdown("**Suitable techniques not available in the dataset**")
+            st.markdown("\n".join(f"- **{n.get('technique', '')}**: {n.get('why_useful', '')}"
+                                  for n in result["not_available"]))
+            for n in result["not_available"]:
+                if n.get("available_on"):
+                    st.error(f"{n.get('technique', '')} is listed as not available, but the instrument notes "
+                             f"list it for {', '.join(n['available_on'])}.")
+    with st.expander("Raw model output"):
+        st.code(result["raw"] or "(empty)", language="json")
 
-with t2:
-    st.subheader("Hugging Face semantic matching")
-    st.write("Optional semantic matching augments the transparent baseline rather than replacing it.")
-    enable_hf = st.checkbox("Load sentence-transformers/all-MiniLM-L6-v2", False)
-    if enable_hf:
-        try:
-            from sentence_transformers import SentenceTransformer
-            @st.cache_resource(show_spinner="Loading Hugging Face model...")
-            def load_model():
-                return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-            model = load_model()
-            profile_text = " ".join(profile["skills"] + profile["interests"] + profile["target_titles"])
-            job_texts = [" ".join([j["title"], j["description"], " ".join(j["required_skills"]), " ".join(j["preferred_skills"])]) for j in JOBS]
-            p = model.encode([profile_text], normalize_embeddings=True)
-            jemb = model.encode(job_texts, normalize_embeddings=True)
-            semantic = (p @ jemb.T).flatten()
-            base = rank_jobs(profile, JOBS, weights)
-            base_map = dict(zip(base["job_id"], base["score"]))
-            df = pd.DataFrame({"job_id":[j["job_id"] for j in JOBS],"title":[j["title"] for j in JOBS],"company":[j["company"] for j in JOBS],"baseline":[base_map[j["job_id"]] for j in JOBS],"semantic":semantic})
-            df["hybrid"] = 0.70 * df["baseline"] + 0.30 * df["semantic"]
-            df = df.sort_values("hybrid", ascending=False).reset_index(drop=True)
-            for c in ["baseline","semantic","hybrid"]:
-                df[c] = (100 * df[c]).round(1)
-            st.success("Hybrid score = 70% transparent baseline + 30% semantic similarity.")
-            st.dataframe(df.rename(columns={"baseline":"Baseline %","semantic":"Semantic %","hybrid":"Hybrid %"}), use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.error("Could not load the Hugging Face model. Install sentence-transformers and ensure model access is available.")
-            st.caption(f"{type(e).__name__}: {e}")
+
+def render_naive(result: dict) -> None:
+    if result["error"]:
+        st.error(f"Could not get an answer: {result['error']}")
     else:
-        st.code("pip install sentence-transformers\nstreamlit run streamlit_app.py", language="bash")
+        st.markdown(result["raw"])
 
-with t3:
-    st.subheader("Feedback & refinement")
-    labels = {f'{j["job_id"]} — {j["title"]} @ {j["company"]}': j["job_id"] for j in JOBS}
-    selected = st.selectbox("Job", list(labels.keys()))
-    action = st.radio("Feedback", ["save","reject","needs review"], horizontal=True)
-    note = st.text_input("Reason / correction", placeholder="e.g., experience requirement is too high")
-    if st.button("Record feedback", type="primary"):
-        st.session_state.feedback.append({"job_id":labels[selected],"action":action,"note":note,"profile":profile["name"]})
-        st.success("Feedback recorded in this Streamlit session.")
-    if st.session_state.feedback:
-        fdf = pd.DataFrame(st.session_state.feedback)
-        st.dataframe(fdf, use_container_width=True, hide_index=True)
-        st.download_button("Download feedback CSV", fdf.to_csv(index=False), "feedback_log.csv", "text/csv")
+
+def render_feedback(answer: dict) -> None:
+    """Feedback on one answer: overall rating, per-instrument ratings, missed instruments, gaps."""
+    row, result = answer["row"], answer["result"]
+    answer_id = row["answer_id"]
+    if answer_id in st.session_state.setdefault("feedback_sent", set()):
+        st.success("Thanks, your feedback was saved.")
+        return
+    known = core.equipment_by_id()
+
+    def label(eq_id: str) -> str:
+        return f"{eq_id} · {known[eq_id]['instrument']}"
+
+    with st.form(f"feedback_{answer_id}"):
+        st.markdown("**Rate this answer** (all fields optional)")
+        overall = st.radio("Overall", ["Good", "Bad"], index=None, horizontal=True, key=f"{answer_id}_overall")
+        comment = st.text_area("Why?", height=68, key=f"{answer_id}_comment")
+        ratings = {}
+        if result["instrument_ids"]:
+            st.markdown("Each instrument in the answer:")
+            for eq_id in result["instrument_ids"]:
+                ratings[eq_id] = st.radio(label(eq_id), RATINGS, index=None, horizontal=True,
+                                          key=f"{answer_id}_{eq_id}")
+        missing = st.multiselect("Instruments that should have been recommended",
+                                 [eq_id for eq_id in known if eq_id not in result["instrument_ids"]],
+                                 format_func=label, key=f"{answer_id}_missing")
+        gaps_ok = st.radio("Were the techniques it called not available in the dataset right?",
+                           ["Yes", "Partly", "No", "Not applicable"], index=None, horizontal=True,
+                           key=f"{answer_id}_gaps")
+        gaps_comment = st.text_input("What was missing or wrong there?", key=f"{answer_id}_gaps_comment")
+        if st.form_submit_button("Submit feedback"):
+            rated = {eq_id: rating for eq_id, rating in ratings.items() if rating}
+            store.save("feedback", store.feedback_row(
+                row, st.session_state.get("rater", "").strip(), overall or "", comment.strip(), rated,
+                missing, gaps_ok or "", gaps_comment.strip()))
+            st.session_state["feedback_sent"].add(answer_id)
+            st.rerun()
+
+
+def cache_key(mode: str, question: str) -> tuple:
+    """A new model, prompt or dataset never reuses an old answer."""
+    return (mode, core.normalize_question(question), llm.provider(), llm.model_name(),
+            core.prompt_version(mode), core.dataset_version())
+
+
+def saved_or_error(mode: str, question: str, reason: str) -> dict:
+    """The saved demo answer for this question, labelled with why it is shown; else the reason as an error."""
+    saved = core.demo_answer(mode, question)
+    if saved:
+        saved["notice"] = reason
+        return saved
+    result = core.new_result(mode)
+    result["error"] = reason
+    return result
+
+
+def run_live(question: str, modes: list[str], stream_box) -> dict[str, dict]:
+    """Call the model for each mode at the same time. With a stream_box, naive streams its text into it
+    from this thread (Streamlit can only draw from here) while the other mode runs in a worker thread."""
+    stream = "naive" in modes and stream_box is not None
+    threaded = [mode for mode in modes if not (stream and mode == "naive")]
+    results = {}
+    with ThreadPoolExecutor(max_workers=max(len(threaded), 1)) as pool:
+        futures = {mode: pool.submit(RUNNERS[mode], question) for mode in threaded}
+        if stream:
+            results["naive"] = {}
+            with stream_box:
+                st.write_stream(core.stream_naive(question, results["naive"]))
+        for mode, future in futures.items():
+            results[mode] = future.result()
+    return results
+
+
+def get_answers(question: str, modes: list[str], stream_box=None) -> dict[str, dict]:
+    """Answers from, in order: the cache, the model (with retries and fallback model), the saved demo
+    answers. Spending limits apply only to model calls."""
+    if runtime.flag("DEMO_OFFLINE"):
+        return {mode: saved_or_error(mode, question, "Offline demo mode answers only the saved questions; "
+                                                     "try one of the example buttons.") for mode in modes}
+    results = {}
+    if not st.session_state.get("skip_cache"):
+        for mode in modes:
+            hit = answer_cache().get(cache_key(mode, question))
+            if hit:
+                results[mode] = {**hit, "source": "cache"}
+    live = [mode for mode in modes if mode not in results]
+    if not live:
+        return results
+    blocked = runtime.limit_reason(st.session_state["calls"], len(live), daily_budget().spent())
+    if blocked:
+        return {**results, **{mode: saved_or_error(mode, question, blocked) for mode in live}}
+
+    st.session_state["calls"] += len(live)
+    for mode, result in run_live(question, live, stream_box).items():
+        cost = result["usage"].get("cost_usd") or 0.0
+        st.session_state["cost"] += cost
+        daily_budget().add(cost)
+        if not result["error"]:
+            answer_cache().put(cache_key(mode, question), result)
+        elif runtime.flag("DEMO_BACKUP", default=True) and core.demo_answer(mode, question):
+            result = saved_or_error(mode, question, result["error"])
+        results[mode] = result
+    return results
+
+
+def ask(question: str, modes: list[str], stream_box=None) -> list[dict]:
+    """Answer the question in each mode and log every answer (cached and saved ones too, by source)."""
+    results = get_answers(question, modes, stream_box)
+    answers = []
+    for mode in modes:
+        result = results[mode]
+        row = store.answer_row(question, result, session_id=st.session_state["session_id"],
+                               rater=st.session_state.get("rater", "").strip(),
+                               from_example=question in EXAMPLES.values())
+        store.save("answers", row)
+        answers.append({"result": result, "row": row})
+    return answers
+
+
+def stream_box_for(modes: list[str]):
+    """Where the naive answer streams while it is generated, laid out like the final answers; None
+    if streaming is off or naive is not asked."""
+    if "naive" not in modes or not runtime.flag("STREAM_NAIVE", default=True):
+        return None
+    if len(modes) == 1:
+        return st.container()
+    box = None
+    for column, mode in zip(st.columns(len(modes)), modes):
+        column.subheader(MODE_LABELS[mode])
+        if mode == "naive":
+            box = column.container()
+        else:
+            column.caption(f"Waiting for the {MODE_LABELS[mode].lower()} answer...")
+    return box
+
+
+def render_answer(answer: dict) -> None:
+    result = answer["result"]
+    render_source(result)
+    if result["mode"] in core.JSON_MODES:
+        render_structured(result)
     else:
-        st.caption("No feedback recorded yet.")
+        render_naive(result)
+    if not result["error"]:
+        render_feedback(answer)
 
-with t4:
-    st.subheader("Manual vs. AI-guided experiment")
-    st.write("Do not force AI to win. Compare time, correctness, ranking quality, transparency, reproducibility, and human edits.")
-    edited = st.data_editor(st.session_state.comparison, use_container_width=True, hide_index=True, num_rows="fixed")
-    st.session_state.comparison = edited
-    st.download_button("Download comparison CSV", edited.to_csv(index=False), "manual_vs_ai_comparison.csv", "text/csv")
-    st.markdown("**Questions:** What became faster? What became harder to verify? What did the human change? Did the AI actually run tests?")
 
-with t5:
-    st.subheader("Agentic AI + GitHub workflow")
-    st.markdown("**GOAL → PLAN → TOOLS → OBSERVE → REVISE → VERIFY**")
-    prompt = '''We are building a teaching application for AI-guided job search.
-Before changing code, propose a short plan.
+def main() -> None:
+    st.set_page_config(page_title="UMKC Equipment Discovery", layout="wide")
+    if not password_ok():
+        return
+    st.session_state.setdefault("session_id", uuid.uuid4().hex[:8])
+    st.session_state.setdefault("calls", 0)
+    st.session_state.setdefault("cost", 0.0)
+    mode = render_sidebar()
 
-Improve only the baseline_match() and explain_match() parts of the project.
+    tab1, tab2 = st.tabs(["Equipment Discovery", "Knowledge Graph Explorer"])
 
-Requirements:
-1. Keep every score in [0,1].
-2. Preserve separate evidence for skills, experience, interests, and constraints.
-3. Add at least three meaningful tests.
-4. Do not invent job facts not present in the input data.
-5. After editing, execute the tests and show the outputs.
-6. Summarize every change.
-7. List decisions that still require human approval.
-8. Do not rewrite unrelated components.
+    with tab1:
+        st.title("UMKC Research Equipment Discovery")
+        st.write("Describe your research or measurement problem in plain language. "
+                 "You do not need to know which technique or instrument you need.")
+        st.caption("Questions, answers and feedback are logged to help evaluate this prototype. "
+                   "Please do not enter confidential information.")
 
-After implementation, compare the result with the human baseline and document
-one improvement, one failure, and one human correction.'''
-    st.text_area("Google Antigravity prompt", prompt, height=310)
-    st.markdown("#### GitHub experiment workflow")
-    st.code('''git checkout -b human-baseline
-git add .
-git commit -m "HUMAN: add transparent baseline matcher"
+        cols = st.columns(len(EXAMPLES))
+        for col, (label, text) in zip(cols, EXAMPLES.items()):
+            col.button(label, on_click=set_question, args=(text,), use_container_width=True)
 
-git checkout -b ai-guided-matcher
-# Apply agent changes, run tests, inspect diff
-git add .
-git commit -m "AI-GENERATED: propose improved matching logic"
+        question = st.text_area("Your question", key="question", height=100)
+        if st.button("Find equipment", type="primary"):
+            if not question.strip():
+                st.warning("Please enter a question.")
+                return
+            modes = MODES[mode]
+            stream_box = stream_box_for(modes)
+            with st.spinner("Asking the model..."):
+                st.session_state["answers"] = ask(question.strip(), modes, stream_box)
+            st.rerun()  # redraw from the session so the streamed text is replaced by the full answer
 
-# Human correction and verification
-git add .
-git commit -m "CO-DESIGNED: verify and correct matching logic"''', language="bash")
-    st.write("Issue → Branch → Small commits → PR/review → README → comparison evidence")
+        # Answers are kept in the session so they stay on screen while feedback is given.
+        answers = st.session_state.get("answers", [])
+        if len(answers) > 1:
+            for column, answer in zip(st.columns(len(answers)), answers):
+                with column:
+                    st.subheader(MODE_LABELS[answer["result"]["mode"]])
+                    render_answer(answer)
+        elif answers:
+            render_answer(answers[0])
 
-st.divider()
-st.caption("CS 5588 Challenge 1 • Teaching prototype • Keep human review in the loop.")
+    with tab2:
+        st.subheader("Interactive Equipment Knowledge Graph")
+        st.caption("Explore relationships between instruments, manufacturers, locations, and research domains.")
+        components.iframe(
+            "https://granite-harrier-1qezz.ship.place/",
+            height=850,
+            scrolling=True,
+        )
+
+
+main()
