@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Retail360: GraphRAG Knowledge Graph Explorer</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+    }
+    .node-circle {
+      cursor: pointer;
+      transition: r 0.2s, stroke-width 0.2s, opacity 0.25s;
+    }
+    .node-circle:hover {
+      filter: brightness(1.25);
+    }
+    .edge-line {
+      transition: stroke-opacity 0.25s, stroke-width 0.25s, stroke 0.25s;
+    }
+    .node-label {
+      pointer-events: none;
+      font-size: 11px;
+      font-weight: 600;
+      fill: #f1f5f9;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+      transition: opacity 0.25s;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.5);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="bg-[#0b1120] text-slate-100 h-screen w-screen flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-5 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-lg shadow-emerald-500/30">
+        R360
+      </div>
+      <div>
+        <h1 class="text-sm font-semibold text-slate-100 flex items-center gap-2">
+          Retail360: GraphRAG Knowledge Graph
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">+0.08 PR-AUC Lift</span>
+        </h1>
+        <p class="text-xs text-slate-400">Evidence-Grounded 60-Day Repurchase Prediction • Harris Hamid (Hack-A-Roo 2026)</p>
+      </div>
+    </div>
+
+    <!-- Filter & View Controls -->
+    <div class="flex items-center space-x-3">
+      <div class="relative">
+        <input id="searchInput" type="text" placeholder="Search customer, product, C17..." 
+               class="bg-slate-800/90 text-xs px-3 py-1.5 pl-8 rounded-lg border border-slate-700 text-slate-200 placeholder-slate-400 focus:outline-none focus:border-emerald-500 w-56 transition-all">
+        <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+      </div>
+
+      <div class="flex bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 text-xs">
+        <button id="tabAll" class="px-2.5 py-1 rounded-md bg-emerald-600 text-white font-medium transition">All</button>
+        <button id="tabC17" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white transition">C17 Cluster</button>
+        <button id="tab13085" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white transition">Cust 13085 Path</button>
+        <button id="tabAblation" class="px-2.5 py-1 rounded-md text-slate-300 hover:text-white transition">Ablation</button>
+      </div>
+
+      <button id="resetBtn" class="bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+        Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Graph Area & Sidebar -->
+  <div class="flex-1 relative flex overflow-hidden">
+    
+    <!-- SVG Canvas -->
+    <div id="canvasContainer" class="flex-1 h-full relative cursor-grab active:cursor-grabbing bg-[#090d16]">
+      <svg id="graphSvg" class="w-full h-full">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#475569" opacity="0.6"/>
+          </marker>
+          <marker id="arrow-highlight" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#38bdf8"/>
+          </marker>
+        </defs>
+        <g id="viewport">
+          <g id="edgesLayer"></g>
+          <g id="nodesLayer"></g>
+          <g id="labelsLayer"></g>
+        </g>
+      </svg>
+
+      <!-- Poster Centerpiece Legend -->
+      <div class="absolute bottom-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-3.5 shadow-2xl z-10 text-xs flex flex-col gap-2 max-w-sm">
+        <div class="font-semibold text-slate-200 border-b border-slate-800 pb-1.5 flex justify-between items-center">
+          <span>Poster Entity Legend</span>
+          <span class="text-[10px] text-emerald-400 font-mono">Leiden Communities</span>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#10b981] inline-block shadow"></span> Community (C17, C08)</div>
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#3b82f6] inline-block shadow"></span> Customer (13085, 17850)</div>
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#f97316] inline-block shadow"></span> Invoice (536365, etc)</div>
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#06b6d4] inline-block shadow"></span> Product (C17-P1..P6)</div>
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] inline-block shadow"></span> InvoiceLine Items</div>
+          <div class="flex items-center gap-2"><span class="w-3.5 h-3.5 rounded-full bg-[#ec4899] inline-block shadow"></span> Experiment / Ablation</div>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Badge Floating -->
+      <div class="absolute top-4 left-4 bg-slate-900/85 backdrop-blur border border-slate-800/80 rounded-xl px-4 py-2.5 shadow-xl z-10 flex items-center gap-4 text-xs">
+        <div>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider block">PR-AUC Lift</span>
+          <span class="text-sm font-bold text-emerald-400">+0.08 <span class="text-xs text-slate-400 font-normal">(0.31 → 0.39)</span></span>
+        </div>
+        <div class="w-px h-6 bg-slate-800"></div>
+        <div>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Recall@50</span>
+          <span class="text-sm font-bold text-sky-400">+0.09 <span class="text-xs text-slate-400 font-normal">(0.42 → 0.51)</span></span>
+        </div>
+        <div class="w-px h-6 bg-slate-800"></div>
+        <div>
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Faithfulness</span>
+          <span class="text-sm font-bold text-amber-400">+0.08 <span class="text-xs text-slate-400 font-normal">(0.78 → 0.86)</span></span>
+        </div>
+      </div>
+
+      <!-- Zoom Controls -->
+      <div class="absolute bottom-4 right-80 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-1 shadow-xl z-10 flex flex-col gap-1">
+        <button id="zoomInBtn" class="w-8 h-8 rounded hover:bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm">+</button>
+        <button id="zoomOutBtn" class="w-8 h-8 rounded hover:bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-sm">−</button>
+        <button id="zoomResetBtn" class="w-8 h-8 rounded hover:bg-slate-800 text-slate-300 flex items-center justify-center text-xs">⟲</button>
+      </div>
+    </div>
+
+    <!-- Right Sidebar Inspector -->
+    <aside id="inspectorPanel" class="w-80 border-l border-slate-800 bg-slate-900/95 backdrop-blur p-4 overflow-y-auto flex flex-col z-20 shrink-0 shadow-2xl">
+      <div id="inspectorEmpty" class="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-400">
+        <div class="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center text-emerald-400 mb-3 shadow-inner">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+          </svg>
+        </div>
+        <p class="text-sm font-medium text-slate-200">Inspect Retail360 Graph</p>
+        <p class="text-xs text-slate-400 mt-1">Click on Community C17, Customer 13085, or any Invoice to trace exact multi-hop evidence paths.</p>
+      </div>
+
+      <div id="inspectorContent" class="hidden flex-col gap-4">
+        <!-- Node Header -->
+        <div class="border-b border-slate-800 pb-3">
+          <div class="flex items-center justify-between">
+            <span id="nodeBadge" class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800">
+              Community
+            </span>
+            <span id="nodeIdTag" class="text-[10px] text-slate-500 font-mono">COMM_C17</span>
+          </div>
+          <h2 id="nodeTitle" class="text-base font-bold text-slate-100 mt-2 leading-snug">
+            C17: Home Decor
+          </h2>
+          <p id="nodeSubtitle" class="text-xs text-slate-400 mt-0.5">
+            Leiden Co-Purchase Community
+          </p>
+        </div>
+
+        <!-- Node Properties -->
+        <div class="flex flex-col gap-2">
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Properties</h3>
+          <div id="propertiesList" class="bg-slate-950/70 border border-slate-800 rounded-lg p-3 text-xs flex flex-col gap-2"></div>
+        </div>
+
+        <!-- Connected Edges -->
+        <div class="flex flex-col gap-2">
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex justify-between">
+            <span>Graph Connections</span>
+            <span id="connCount" class="text-emerald-400">6</span>
+          </h3>
+          <div id="connectionsList" class="flex flex-col gap-1.5"></div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    const graphData = {
+      nodes: [
+        // Communities
+        { id: "COMM_C17", label: "C17 (Home Decor)", type: "Community", r: 28, color: "#10b981", props: { communityId: "C17", theme: "Home Decor & Ambient Lighting", algorithm: "Leiden Modularity", coPurchaseAffinity: "High co-occurrence on invoices", productCount: 6, memberCount: 85 } },
+        { id: "COMM_C08", label: "C08 (Bags)", type: "Community", r: 22, color: "#059669", props: { communityId: "C08", theme: "Bags & Storage Solutions", algorithm: "Leiden Modularity", coPurchaseAffinity: "High co-occurrence on invoices", productCount: 2, memberCount: 62 } },
+
+        // Customers
+        { id: "CUST_13085", label: "Cust 13085 (Anchor)", type: "Customer", r: 22, color: "#3b82f6", props: { customerId: 13085, country: "United Kingdom", tenureTier: "Established", orderCountPreCutoff: 7, totalSpendPreCutoff: "£2,433.84", isDesignAnchor: "True (Slide 1 & 3)", actual60DayRepurchase: "1 (Repurchased)" } },
+        { id: "CUST_17850", label: "Cust 17850", type: "Customer", r: 18, color: "#2563eb", props: { customerId: 17850, country: "United Kingdom", tenureTier: "Established", orderCountPreCutoff: 5, totalSpendPreCutoff: "£1,820.50", actual60DayRepurchase: "1 (Repurchased)" } },
+        { id: "CUST_19999", label: "Cust 19999 (Audit)", type: "Customer", r: 16, color: "#ef4444", props: { customerId: 19999, country: "United Kingdom", tenureTier: "New", isCancelledOnly: "True (100% Cancellations)", guardrailAudit: "Insufficient Evidence - Guardrail Triggered" } },
+
+        // Invoices
+        { id: "INV_536365", label: "Inv 536365", type: "Invoice", r: 18, color: "#f97316", props: { invoiceId: "536365", invoiceDate: "2010-12-01", totalAmount: "£354.44", isCancelled: "False" } },
+        { id: "INV_536366", label: "Inv 536366", type: "Invoice", r: 16, color: "#ea580c", props: { invoiceId: "536366", invoiceDate: "2010-12-06", totalAmount: "£177.60", isCancelled: "False" } },
+        { id: "INV_536372", label: "Inv 536372", type: "Invoice", r: 16, color: "#c2410c", props: { invoiceId: "536372", invoiceDate: "2011-03-31", totalAmount: "£701.20", isCancelled: "False" } },
+
+        // InvoiceLines
+        { id: "LINE_1", label: "Line: 85123A (x48)", type: "InvoiceLine", r: 13, color: "#8b5cf6", props: { invoiceId: "536365", stockCode: "85123A", qty: 48, price: "£2.55", total: "£122.40" } },
+        { id: "LINE_2", label: "Line: 71053 (x36)", type: "InvoiceLine", r: 13, color: "#8b5cf6", props: { invoiceId: "536365", stockCode: "71053", qty: 36, price: "£3.39", total: "£122.04" } },
+        { id: "LINE_3", label: "Line: 84406B (x40)", type: "InvoiceLine", r: 13, color: "#8b5cf6", props: { invoiceId: "536365", stockCode: "84406B", qty: 40, price: "£2.75", total: "£110.00" } },
+
+        // Products in C17 (Home Decor)
+        { id: "PROD_85123A", label: "C17-P1 (85123A)", type: "Product", r: 16, color: "#06b6d4", props: { posterAlias: "C17-P1", stockCode: "85123A", description: "WHITE HANGING HEART T-LIGHT HOLDER", unitPrice: "£2.55", category: "Home Decor" } },
+        { id: "PROD_71053", label: "C17-P2 (71053)", type: "Product", r: 16, color: "#06b6d4", props: { posterAlias: "C17-P2", stockCode: "71053", description: "WHITE METAL LANTERN", unitPrice: "£3.39", category: "Home Decor" } },
+        { id: "PROD_84406B", label: "C17-P3 (84406B)", type: "Product", r: 15, color: "#06b6d4", props: { posterAlias: "C17-P3", stockCode: "84406B", description: "CREAM CUPID HEARTS COAT HANGER", unitPrice: "£2.75", category: "Home Decor" } },
+        { id: "PROD_C17_P4", label: "C17-P4 (22178)", type: "Product", r: 14, color: "#06b6d4", props: { posterAlias: "C17-P4", stockCode: "22178", description: "VICTORIAN GLASS HANGING T-LIGHT", unitPrice: "£1.25", category: "Home Decor" } },
+        { id: "PROD_C17_P5", label: "C17-P5 (82494L)", type: "Product", r: 14, color: "#06b6d4", props: { posterAlias: "C17-P5", stockCode: "82494L", description: "WOODEN FRAME ANTIQUE WHITE", unitPrice: "£2.95", category: "Home Decor" } },
+        { id: "PROD_C17_P6", label: "C17-P6 (84879)", type: "Product", r: 14, color: "#06b6d4", props: { posterAlias: "C17-P6", stockCode: "84879", description: "ASSORTED COLOUR BIRD ORNAMENT", unitPrice: "£1.69", category: "Home Decor" } },
+
+        // Products in C08 (Bags)
+        { id: "PROD_20725", label: "C08-P1 (20725)", type: "Product", r: 14, color: "#0284c7", props: { posterAlias: "C08-P1", stockCode: "20725", description: "LUNCH BAG RED RETROSPOT", unitPrice: "£1.65", category: "Bags & Storage" } },
+        { id: "PROD_85099B", label: "C08-P2 (85099B)", type: "Product", r: 14, color: "#0284c7", props: { posterAlias: "C08-P2", stockCode: "85099B", description: "JUMBO BAG RED RETROSPOT", unitPrice: "£1.95", category: "Bags & Storage" } },
+
+        // Feature Vector
+        { id: "FEAT_13085", label: "Features 13085", type: "FeatureVector", r: 17, color: "#14b8a6", props: { customerId: 13085, recencyDays: 62, frequencyInvoices: 7, monetarySpend: "£2,433.84", communityId: "C17", graphDegree: 8, coPurchasingNeighbors: 14, predictedRisk: "0.88 (High Likelihood)" } },
+
+        // Experiments & Evaluation
+        { id: "EXP_ORIGINAL", label: "Original GraphRAG", type: "Experiment", r: 17, color: "#ec4899", props: { name: "Original GraphRAG", notes: "RFM + invoice paths only", prAuc: 0.31, recallAt50: 0.42, faithfulness: 0.78 } },
+        { id: "EXP_COMMUNITY", label: "Community-Enhanced", type: "Experiment", r: 22, color: "#db2777", props: { name: "Community-Enhanced GraphRAG", notes: "+ community features & multi-hop", prAuc: 0.39, recallAt50: 0.51, faithfulness: 0.86, prAucLift: "+0.08", recallLift: "+0.09", faithfulnessLift: "+0.08" } },
+
+        // Tools
+        { id: "TOOL_GROK", label: "Grok", type: "Tool", r: 14, color: "#eab308", props: { tool: "Grok", role: "Primary agentic conversation partner" } },
+        { id: "TOOL_NEO4J", label: "Neo4j Aura", type: "Tool", r: 16, color: "#0ea5e9", props: { tool: "Neo4j Aura Cloud", role: "Graph database engine & Cypher GraphRAG" } },
+        { id: "TOOL_ANTIGRAVITY", label: "Antigravity", type: "Tool", r: 15, color: "#6366f1", props: { tool: "Google Antigravity", role: "Agentic coding assistant for synthesis & viz" } }
+      ],
+      edges: [
+        { source: "CUST_13085", target: "INV_536365", type: "PLACED" },
+        { source: "CUST_13085", target: "INV_536366", type: "PLACED" },
+        { source: "CUST_13085", target: "INV_536372", type: "PLACED" },
+        { source: "CUST_17850", target: "INV_536365", type: "PLACED" },
+        { source: "INV_536365", target: "LINE_1", type: "CONTAINS" },
+        { source: "INV_536365", target: "LINE_2", type: "CONTAINS" },
+        { source: "INV_536365", target: "LINE_3", type: "CONTAINS" },
+        { source: "LINE_1", target: "PROD_85123A", type: "OF_PRODUCT" },
+        { source: "LINE_2", target: "PROD_71053", type: "OF_PRODUCT" },
+        { source: "LINE_3", target: "PROD_84406B", type: "OF_PRODUCT" },
+        { source: "CUST_13085", target: "PROD_85123A", type: "PURCHASED" },
+        { source: "CUST_13085", target: "PROD_71053", type: "PURCHASED" },
+        { source: "CUST_17850", target: "PROD_85123A", type: "PURCHASED" },
+        { source: "PROD_85123A", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_71053", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_84406B", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_C17_P4", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_C17_P5", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_C17_P6", target: "COMM_C17", type: "BELONGS_TO" },
+        { source: "PROD_20725", target: "COMM_C08", type: "BELONGS_TO" },
+        { source: "PROD_85099B", target: "COMM_C08", type: "BELONGS_TO" },
+        { source: "CUST_13085", target: "COMM_C17", type: "SHARES_COMMUNITY" },
+        { source: "CUST_17850", target: "COMM_C17", type: "SHARES_COMMUNITY" },
+        { source: "CUST_13085", target: "FEAT_13085", type: "HAS_FEATURE_VECTOR" },
+        { source: "EXP_ORIGINAL", target: "EXP_COMMUNITY", type: "ENHANCED_BY" },
+        { source: "EXP_COMMUNITY", "target": "COMM_C17", type: "LEVERAGES_COMMUNITY" },
+        { source: "EXP_COMMUNITY", "target": "TOOL_NEO4J", type: "RUNS_ON" },
+        { source: "EXP_COMMUNITY", "target": "TOOL_GROK", type: "DESIGNED_WITH" },
+        { source: "EXP_COMMUNITY", "target": "TOOL_ANTIGRAVITY", type: "IMPLEMENTED_WITH" }
+      ]
+    };
+
+    const nodeMap = new Map();
+    graphData.nodes.forEach(n => {
+      n.x = 0; n.y = 0; n.vx = 0; n.vy = 0;
+      nodeMap.set(n.id, n);
+    });
+
+    const resolvedEdges = graphData.edges.map(e => ({
+      ...e,
+      sourceNode: nodeMap.get(e.source),
+      targetNode: nodeMap.get(e.target)
+    }));
+
+    // Layout configuration replicating poster
+    const width = 1100;
+    const height = 800;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Fixed radial cluster for C17 centerpiece
+    nodeMap.get("COMM_C17").x = centerX;
+    nodeMap.get("COMM_C17").y = centerY - 20;
+
+    const c17Products = ["PROD_85123A", "PROD_71053", "PROD_84406B", "PROD_C17_P4", "PROD_C17_P5", "PROD_C17_P6"];
+    c17Products.forEach((pid, idx) => {
+      const angle = (idx / c17Products.length) * 2 * Math.PI - Math.PI / 2;
+      const pNode = nodeMap.get(pid);
+      if (pNode) {
+        pNode.x = centerX + Math.cos(angle) * 160;
+        pNode.y = (centerY - 20) + Math.sin(angle) * 160;
+      }
+    });
+
+    // Customers on left
+    nodeMap.get("CUST_13085").x = centerX - 320;
+    nodeMap.get("CUST_13085").y = centerY - 80;
+    nodeMap.get("CUST_17850").x = centerX - 300;
+    nodeMap.get("CUST_17850").y = centerY + 80;
+    nodeMap.get("CUST_19999").x = centerX - 420;
+    nodeMap.get("CUST_19999").y = centerY + 180;
+
+    // Feature vector near Cust 13085
+    nodeMap.get("FEAT_13085").x = centerX - 440;
+    nodeMap.get("FEAT_13085").y = centerY - 150;
+
+    // Invoices below customers & products
+    nodeMap.get("INV_536365").x = centerX - 140;
+    nodeMap.get("INV_536365").y = centerY + 240;
+    nodeMap.get("INV_536366").x = centerX - 260;
+    nodeMap.get("INV_536366").y = centerY + 260;
+    nodeMap.get("INV_536372").x = centerX - 20;
+    nodeMap.get("INV_536372").y = centerY + 280;
+
+    // Invoice lines near invoice 536365
+    nodeMap.get("LINE_1").x = centerX - 110;
+    nodeMap.get("LINE_1").y = centerY + 150;
+    nodeMap.get("LINE_2").x = centerX - 50;
+    nodeMap.get("LINE_2").y = centerY + 170;
+    nodeMap.get("LINE_3").x = centerX + 10;
+    nodeMap.get("LINE_3").y = centerY + 150;
+
+    // C08 Community on upper right
+    nodeMap.get("COMM_C08").x = centerX + 320;
+    nodeMap.get("COMM_C08").y = centerY - 180;
+    nodeMap.get("PROD_20725").x = centerX + 390;
+    nodeMap.get("PROD_20725").y = centerY - 240;
+    nodeMap.get("PROD_85099B").x = centerX + 400;
+    nodeMap.get("PROD_85099B").y = centerY - 120;
+
+    // Experiments & Tools on far right
+    nodeMap.get("EXP_ORIGINAL").x = centerX + 260;
+    nodeMap.get("EXP_ORIGINAL").y = centerY + 80;
+    nodeMap.get("EXP_COMMUNITY").x = centerX + 360;
+    nodeMap.get("EXP_COMMUNITY").y = centerY + 180;
+    nodeMap.get("TOOL_GROK").x = centerX + 220;
+    nodeMap.get("TOOL_GROK").y = centerY + 280;
+    nodeMap.get("TOOL_NEO4J").x = centerX + 340;
+    nodeMap.get("TOOL_NEO4J").y = centerY + 300;
+    nodeMap.get("TOOL_ANTIGRAVITY").x = centerX + 440;
+    nodeMap.get("TOOL_ANTIGRAVITY").y = centerY + 260;
+
+    // Render SVG
+    const edgesLayer = document.getElementById("edgesLayer");
+    const nodesLayer = document.getElementById("nodesLayer");
+    const labelsLayer = document.getElementById("labelsLayer");
+
+    resolvedEdges.forEach((e, idx) => {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("id", "edge-" + idx);
+      line.setAttribute("class", "edge-line");
+      line.setAttribute("stroke", "#334155");
+      line.setAttribute("stroke-width", "1.7");
+      line.setAttribute("stroke-opacity", "0.45");
+      line.setAttribute("marker-end", "url(#arrow)");
+      edgesLayer.appendChild(line);
+      e.element = line;
+    });
+
+    graphData.nodes.forEach(n => {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("id", "node-" + n.id);
+      circle.setAttribute("class", "node-circle");
+      circle.setAttribute("r", n.r);
+      circle.setAttribute("fill", n.color);
+      circle.setAttribute("stroke", "#0b1120");
+      circle.setAttribute("stroke-width", "2.5");
+      nodesLayer.appendChild(circle);
+      n.circleElement = circle;
+
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("id", "label-" + n.id);
+      text.setAttribute("class", "node-label");
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dy", n.r + 14);
+      text.textContent = n.label;
+      labelsLayer.appendChild(text);
+      n.textElement = text;
+    });
+
+    function updatePositions() {
+      resolvedEdges.forEach(e => {
+        if (!e.sourceNode || !e.targetNode) return;
+        e.element.setAttribute("x1", e.sourceNode.x);
+        e.element.setAttribute("y1", e.sourceNode.y);
+        e.element.setAttribute("x2", e.targetNode.x);
+        e.element.setAttribute("y2", e.targetNode.y);
+      });
+      graphData.nodes.forEach(n => {
+        n.circleElement.setAttribute("cx", n.x);
+        n.circleElement.setAttribute("cy", n.y);
+        n.textElement.setAttribute("x", n.x);
+        n.textElement.setAttribute("y", n.y);
+      });
+    }
+    updatePositions();
+
+    // Inspector Selection
+    let selectedNode = null;
+    function getNeighbors(nodeId) {
+      const neighbors = new Set();
+      resolvedEdges.forEach(e => {
+        if (e.source === nodeId) neighbors.add(e.target);
+        if (e.target === nodeId) neighbors.add(e.source);
+      });
+      return neighbors;
+    }
+
+    function selectNode(node) {
+      selectedNode = node;
+      if (!node) {
+        document.getElementById("inspectorEmpty").classList.remove("hidden");
+        document.getElementById("inspectorContent").classList.add("hidden");
+        resetHighlights();
+        return;
+      }
+
+      document.getElementById("inspectorEmpty").classList.add("hidden");
+      document.getElementById("inspectorContent").classList.remove("hidden");
+
+      const badge = document.getElementById("nodeBadge");
+      badge.textContent = node.type;
+      badge.style.borderColor = node.color;
+      badge.style.color = node.color;
+      document.getElementById("nodeIdTag").textContent = node.id;
+      document.getElementById("nodeTitle").textContent = node.label;
+      document.getElementById("nodeSubtitle").textContent = node.props.theme || node.props.description || node.type;
+
+      const propsList = document.getElementById("propertiesList");
+      propsList.innerHTML = "";
+      for (const [key, val] of Object.entries(node.props)) {
+        const row = document.createElement("div");
+        row.className = "flex justify-between items-start gap-2 border-b border-slate-800/60 pb-1 last:border-none";
+        row.innerHTML = `
+          <span class="text-slate-400 capitalize">${key.replace(/([A-Z])/g, ' $1')}</span>
+          <span class="text-slate-200 text-right font-medium max-w-[170px] break-words">${val}</span>
+        `;
+        propsList.appendChild(row);
+      }
+
+      const connList = document.getElementById("connectionsList");
+      connList.innerHTML = "";
+      const connectedEdges = resolvedEdges.filter(e => e.source === node.id || e.target === node.id);
+      document.getElementById("connCount").textContent = connectedEdges.length;
+
+      connectedEdges.forEach(e => {
+        const otherNode = (e.source === node.id) ? e.targetNode : e.sourceNode;
+        const btn = document.createElement("button");
+        btn.className = "w-full text-left bg-slate-800/70 hover:bg-slate-700/80 p-2 rounded-lg border border-slate-700/60 transition flex items-center justify-between group";
+        btn.innerHTML = `
+          <div class="flex items-center gap-2 overflow-hidden">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${otherNode.color}"></span>
+            <div class="truncate">
+              <p class="text-xs font-semibold text-slate-200 group-hover:text-emerald-300 truncate">${otherNode.label}</p>
+              <p class="text-[10px] text-slate-400">${otherNode.type}</p>
+            </div>
+          </div>
+          <span class="text-[9px] uppercase px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 shrink-0 font-mono">${e.type}</span>
+        `;
+        btn.onclick = () => selectNode(otherNode);
+        connList.appendChild(btn);
+      });
+
+      highlightNeighborhood(node.id);
+    }
+
+    function highlightNeighborhood(nodeId) {
+      const neighbors = getNeighbors(nodeId);
+      neighbors.add(nodeId);
+
+      graphData.nodes.forEach(n => {
+        const isNeighbor = neighbors.has(n.id);
+        n.circleElement.style.opacity = isNeighbor ? "1" : "0.15";
+        n.circleElement.setAttribute("stroke", n.id === nodeId ? "#ffffff" : "#0b1120");
+        n.circleElement.setAttribute("stroke-width", n.id === nodeId ? "3.5" : "2");
+        n.textElement.style.opacity = isNeighbor ? "1" : "0.1";
+      });
+
+      resolvedEdges.forEach(e => {
+        const isConnected = (e.source === nodeId || e.target === nodeId);
+        e.element.setAttribute("stroke", isConnected ? "#38bdf8" : "#334155");
+        e.element.setAttribute("stroke-width", isConnected ? "2.5" : "1.7");
+        e.element.setAttribute("stroke-opacity", isConnected ? "1" : "0.08");
+        e.element.setAttribute("marker-end", isConnected ? "url(#arrow-highlight)" : "url(#arrow)");
+      });
+    }
+
+    function resetHighlights() {
+      graphData.nodes.forEach(n => {
+        n.circleElement.style.opacity = "1";
+        n.circleElement.setAttribute("stroke", "#0b1120");
+        n.circleElement.setAttribute("stroke-width", "2.5");
+        n.textElement.style.opacity = "1";
+      });
+      resolvedEdges.forEach(e => {
+        e.element.setAttribute("stroke", "#334155");
+        e.element.setAttribute("stroke-width", "1.7");
+        e.element.setAttribute("stroke-opacity", "0.45");
+        e.element.setAttribute("marker-end", "url(#arrow)");
+      });
+    }
+
+    graphData.nodes.forEach(n => {
+      n.circleElement.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        selectNode(n);
+      });
+    });
+    document.getElementById("graphSvg").addEventListener("click", () => selectNode(null));
+
+    // Pan & Zoom
+    let scale = 0.95;
+    let panX = 50;
+    let panY = 20;
+    let isDragging = false;
+    let startX = 0; let startY = 0;
+
+    const viewport = document.getElementById("viewport");
+    function applyTransform() {
+      viewport.setAttribute("transform", `translate(${panX}, ${panY}) scale(${scale})`);
+    }
+    applyTransform();
+
+    const container = document.getElementById("canvasContainer");
+    container.addEventListener("mousedown", (e) => {
+      if (e.target.tagName === "circle") return;
+      isDragging = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      applyTransform();
+    });
+    window.addEventListener("mouseup", () => isDragging = false);
+
+    container.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      scale = Math.min(Math.max(scale * zoomFactor, 0.4), 3.0);
+      applyTransform();
+    }, { passive: false });
+
+    document.getElementById("zoomInBtn").addEventListener("click", () => { scale = Math.min(scale * 1.2, 3.0); applyTransform(); });
+    document.getElementById("zoomOutBtn").addEventListener("click", () => { scale = Math.max(scale / 1.2, 0.4); applyTransform(); });
+    document.getElementById("zoomResetBtn").addEventListener("click", () => { scale = 0.95; panX = 50; panY = 20; applyTransform(); });
+
+    // Tabs
+    const tabs = [
+      { id: "tabAll", filter: () => true },
+      { id: "tabC17", filter: (n) => n.id === "COMM_C17" || c17Products.includes(n.id) || n.id === "CUST_13085" || n.id === "CUST_17850" },
+      { id: "tab13085", filter: (n) => ["CUST_13085", "INV_536365", "INV_536366", "INV_536372", "LINE_1", "LINE_2", "LINE_3", "PROD_85123A", "PROD_71053", "COMM_C17", "FEAT_13085"].includes(n.id) },
+      { id: "tabAblation", filter: (n) => ["EXP_ORIGINAL", "EXP_COMMUNITY", "COMM_C17", "TOOL_GROK", "TOOL_NEO4J", "TOOL_ANTIGRAVITY"].includes(n.id) }
+    ];
+
+    tabs.forEach(tab => {
+      const btn = document.getElementById(tab.id);
+      btn.addEventListener("click", () => {
+        tabs.forEach(t => {
+          const b = document.getElementById(t.id);
+          b.className = "px-2.5 py-1 rounded-md text-slate-300 hover:text-white transition";
+        });
+        btn.className = "px-2.5 py-1 rounded-md bg-emerald-600 text-white font-medium transition";
+
+        graphData.nodes.forEach(n => {
+          const visible = tab.filter(n);
+          n.circleElement.style.opacity = visible ? "1" : "0.1";
+          n.textElement.style.opacity = visible ? "1" : "0.05";
+        });
+      });
+    });
+
+    // Search
+    document.getElementById("searchInput").addEventListener("input", (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      graphData.nodes.forEach(n => {
+        const matches = !query || n.label.toLowerCase().includes(query) || Object.values(n.props).some(v => String(v).toLowerCase().includes(query));
+        n.circleElement.style.opacity = matches ? "1" : "0.1";
+        n.textElement.style.opacity = matches ? "1" : "0.05";
+      });
+    });
+
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      document.getElementById("searchInput").value = "";
+      document.getElementById("tabAll").click();
+      scale = 0.95; panX = 50; panY = 20; applyTransform();
+      selectNode(null);
+    });
+
+  </script>
+</body>
+</html>

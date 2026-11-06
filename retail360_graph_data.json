@@ -1,0 +1,335 @@
+{
+  "project": {
+    "title": "Retail360: GraphRAG for Evidence-Grounded 60-Day Repurchase Prediction",
+    "author": "Harris Hamid",
+    "course": "CS 5588 – Data Science",
+    "institution": "University of Missouri-Kansas City (UMKC)",
+    "event": "Hack-A-Roo 2026",
+    "benchmark_dataset": "UCI Online Retail II",
+    "problem_statement": "SME online retailers need transparent 60-day repurchase risk scores backed by concrete invoice evidence — not black-box predictions.",
+    "goal": "Interpretable 60-day repurchase risk with full invoice provenance"
+  },
+  "nodes": [
+    {
+      "id": "CUST_13085",
+      "label": "Customer",
+      "properties": {
+        "customerId": 13085,
+        "country": "United Kingdom",
+        "tenureTier": "Established",
+        "orderCountPreCutoff": 7,
+        "totalSpendPreCutoff": 2433.84,
+        "isDesignAnchor": true,
+        "actual60DayRepurchase": 1
+      }
+    },
+    {
+      "id": "CUST_17850",
+      "label": "Customer",
+      "properties": {
+        "customerId": 17850,
+        "country": "United Kingdom",
+        "tenureTier": "Established",
+        "orderCountPreCutoff": 5,
+        "totalSpendPreCutoff": 1820.50,
+        "isDesignAnchor": false,
+        "actual60DayRepurchase": 1
+      }
+    },
+    {
+      "id": "CUST_19999",
+      "label": "Customer",
+      "properties": {
+        "customerId": 19999,
+        "country": "United Kingdom",
+        "tenureTier": "New",
+        "orderCountPreCutoff": 2,
+        "totalSpendPreCutoff": 0.0,
+        "isCancelledOnly": true,
+        "guardrailTriggered": "Insufficient Evidence - 100% Cancelled Invoices",
+        "actual60DayRepurchase": 0
+      }
+    },
+    {
+      "id": "INV_536365",
+      "label": "Invoice",
+      "properties": {
+        "invoiceId": "536365",
+        "invoiceDate": "2010-12-01",
+        "country": "United Kingdom",
+        "isCancelled": false,
+        "lineCount": 3,
+        "invoiceTotal": 354.44
+      }
+    },
+    {
+      "id": "INV_536366",
+      "label": "Invoice",
+      "properties": {
+        "invoiceId": "536366",
+        "invoiceDate": "2010-12-06",
+        "country": "United Kingdom",
+        "isCancelled": false,
+        "lineCount": 2,
+        "invoiceTotal": 177.60
+      }
+    },
+    {
+      "id": "INV_536372",
+      "label": "Invoice",
+      "properties": {
+        "invoiceId": "536372",
+        "invoiceDate": "2011-03-31",
+        "country": "United Kingdom",
+        "isCancelled": false,
+        "lineCount": 4,
+        "invoiceTotal": 701.20
+      }
+    },
+    {
+      "id": "LINE_536365_1",
+      "label": "InvoiceLine",
+      "properties": {
+        "lineId": "536365-85123A",
+        "invoiceId": "536365",
+        "stockCode": "85123A",
+        "quantity": 48,
+        "unitPrice": 2.55,
+        "lineTotal": 122.40
+      }
+    },
+    {
+      "id": "LINE_536365_2",
+      "label": "InvoiceLine",
+      "properties": {
+        "lineId": "536365-71053",
+        "invoiceId": "536365",
+        "stockCode": "71053",
+        "quantity": 36,
+        "unitPrice": 3.39,
+        "lineTotal": 122.04
+      }
+    },
+    {
+      "id": "LINE_536365_3",
+      "label": "InvoiceLine",
+      "properties": {
+        "lineId": "536365-84406B",
+        "invoiceId": "536365",
+        "stockCode": "84406B",
+        "quantity": 40,
+        "unitPrice": 2.75,
+        "lineTotal": 110.00
+      }
+    },
+    {
+      "id": "PROD_85123A",
+      "label": "Product",
+      "properties": {
+        "stockCode": "85123A",
+        "description": "WHITE HANGING HEART T-LIGHT HOLDER",
+        "unitPrice": 2.55,
+        "posterAlias": "C17-P1",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_71053",
+      "label": "Product",
+      "properties": {
+        "stockCode": "71053",
+        "description": "WHITE METAL LANTERN",
+        "unitPrice": 3.39,
+        "posterAlias": "C17-P2",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_84406B",
+      "label": "Product",
+      "properties": {
+        "stockCode": "84406B",
+        "description": "CREAM CUPID HEARTS COAT HANGER",
+        "unitPrice": 2.75,
+        "posterAlias": "C17-P3",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_C17_P4",
+      "label": "Product",
+      "properties": {
+        "stockCode": "22178",
+        "description": "VICTORIAN GLASS HANGING T-LIGHT",
+        "unitPrice": 1.25,
+        "posterAlias": "C17-P4",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_C17_P5",
+      "label": "Product",
+      "properties": {
+        "stockCode": "82494L",
+        "description": "WOODEN FRAME ANTIQUE WHITE",
+        "unitPrice": 2.95,
+        "posterAlias": "C17-P5",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_C17_P6",
+      "label": "Product",
+      "properties": {
+        "stockCode": "84879",
+        "description": "ASSORTED COLOUR BIRD ORNAMENT",
+        "unitPrice": 1.69,
+        "posterAlias": "C17-P6",
+        "category": "Home Decor"
+      }
+    },
+    {
+      "id": "PROD_20725",
+      "label": "Product",
+      "properties": {
+        "stockCode": "20725",
+        "description": "LUNCH BAG RED RETROSPOT",
+        "unitPrice": 1.65,
+        "posterAlias": "C08-P1",
+        "category": "Bags & Luggage"
+      }
+    },
+    {
+      "id": "PROD_85099B",
+      "label": "Product",
+      "properties": {
+        "stockCode": "85099B",
+        "description": "JUMBO BAG RED RETROSPOT",
+        "unitPrice": 1.95,
+        "posterAlias": "C08-P2",
+        "category": "Bags & Luggage"
+      }
+    },
+    {
+      "id": "COMM_C17",
+      "label": "Community",
+      "properties": {
+        "communityId": "C17",
+        "themeName": "Home Decor & Ambient Lighting",
+        "detectionAlgorithm": "Leiden Modularity Clustering",
+        "coPurchaseAffinity": "High Co-occurrence on invoices",
+        "productCount": 6,
+        "memberCount": 85
+      }
+    },
+    {
+      "id": "COMM_C08",
+      "label": "Community",
+      "properties": {
+        "communityId": "C08",
+        "themeName": "Bags & Storage Solutions",
+        "detectionAlgorithm": "Leiden Modularity Clustering",
+        "coPurchaseAffinity": "High Co-occurrence on invoices",
+        "productCount": 4,
+        "memberCount": 62
+      }
+    },
+    {
+      "id": "FEAT_13085",
+      "label": "FeatureVector",
+      "properties": {
+        "customerId": 13085,
+        "recencyDays": 62,
+        "frequencyInvoices": 7,
+        "monetarySpend": 2433.84,
+        "primaryCommunityId": "C17",
+        "graphDegree": 8,
+        "coPurchasingNeighbors": 14,
+        "predictedRepurchaseRisk": 0.88,
+        "targetLabel": 1
+      }
+    },
+    {
+      "id": "EXP_ORIGINAL",
+      "label": "Experiment",
+      "properties": {
+        "name": "Original GraphRAG",
+        "description": "RFM scalar features + direct invoice retrieval paths only",
+        "prAuc": 0.31,
+        "recallAt50": 0.42,
+        "faithfulness": 0.78,
+        "hasCommunityFeatures": false
+      }
+    },
+    {
+      "id": "EXP_COMMUNITY",
+      "label": "Experiment",
+      "properties": {
+        "name": "Community-Enhanced GraphRAG",
+        "description": "RFM + Leiden community features + multi-hop community path retrieval",
+        "prAuc": 0.39,
+        "recallAt50": 0.51,
+        "faithfulness": 0.86,
+        "hasCommunityFeatures": true,
+        "prAucLift": 0.08,
+        "recallLift": 0.09,
+        "faithfulnessLift": 0.08
+      }
+    },
+    {
+      "id": "TOOL_GROK",
+      "label": "Tool",
+      "properties": {
+        "name": "Grok",
+        "role": "Primary agentic partner for conceptual design & prompt chaining"
+      }
+    },
+    {
+      "id": "TOOL_NEO4J",
+      "label": "Tool",
+      "properties": {
+        "name": "Neo4j Aura",
+        "role": "Cloud property graph database for Cypher ingestion & GraphRAG"
+      }
+    },
+    {
+      "id": "TOOL_ANTIGRAVITY",
+      "label": "Tool",
+      "properties": {
+        "name": "Google Antigravity",
+        "role": "Agentic coding assistant for code synthesis, testing & visualization"
+      }
+    }
+  ],
+  "edges": [
+    { "source": "CUST_13085", "target": "INV_536365", "type": "PLACED" },
+    { "source": "CUST_13085", "target": "INV_536366", "type": "PLACED" },
+    { "source": "CUST_13085", "target": "INV_536372", "type": "PLACED" },
+    { "source": "CUST_17850", "target": "INV_536365", "type": "PLACED" },
+    { "source": "INV_536365", "target": "LINE_536365_1", "type": "CONTAINS" },
+    { "source": "INV_536365", "target": "LINE_536365_2", "type": "CONTAINS" },
+    { "source": "INV_536365", "target": "LINE_536365_3", "type": "CONTAINS" },
+    { "source": "LINE_536365_1", "target": "PROD_85123A", "type": "OF_PRODUCT" },
+    { "source": "LINE_536365_2", "target": "PROD_71053", "type": "OF_PRODUCT" },
+    { "source": "LINE_536365_3", "target": "PROD_84406B", "type": "OF_PRODUCT" },
+    { "source": "CUST_13085", "target": "PROD_85123A", "type": "PURCHASED", "properties": { "totalSpend": 275.40, "totalQty": 108, "orderCount": 2 } },
+    { "source": "CUST_13085", "target": "PROD_71053", "type": "PURCHASED", "properties": { "totalSpend": 122.04, "totalQty": 36, "orderCount": 1 } },
+    { "source": "CUST_17850", "target": "PROD_85123A", "type": "PURCHASED", "properties": { "totalSpend": 153.00, "totalQty": 60, "orderCount": 1 } },
+    { "source": "PROD_85123A", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_71053", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_84406B", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_C17_P4", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_C17_P5", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_C17_P6", "target": "COMM_C17", "type": "BELONGS_TO" },
+    { "source": "PROD_20725", "target": "COMM_C08", "type": "BELONGS_TO" },
+    { "source": "PROD_85099B", "target": "COMM_C08", "type": "BELONGS_TO" },
+    { "source": "CUST_13085", "target": "COMM_C17", "type": "SHARES_COMMUNITY" },
+    { "source": "CUST_17850", "target": "COMM_C17", "type": "SHARES_COMMUNITY" },
+    { "source": "CUST_13085", "target": "FEAT_13085", "type": "HAS_FEATURE_VECTOR" },
+    { "source": "EXP_ORIGINAL", "target": "EXP_COMMUNITY", "type": "ENHANCED_BY", "properties": { "liftPrAuc": 0.08, "liftRecall": 0.09, "liftFaithfulness": 0.08 } },
+    { "source": "EXP_COMMUNITY", "target": "COMM_C17", "type": "LEVERAGES_COMMUNITY" },
+    { "source": "EXP_COMMUNITY", "target": "TOOL_NEO4J", "type": "RUNS_ON" },
+    { "source": "EXP_COMMUNITY", "target": "TOOL_GROK", "type": "DESIGNED_WITH" },
+    { "source": "EXP_COMMUNITY", "target": "TOOL_ANTIGRAVITY", "type": "IMPLEMENTED_WITH" }
+  ]
+}
